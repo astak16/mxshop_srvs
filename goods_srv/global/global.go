@@ -1,7 +1,7 @@
 package global
 
 import (
-	"mxshow_srvs/user_srv/config"
+	"mxshow_srvs/goods_srv/config"
 
 	"gorm.io/gorm"
 )

@@ -1,0 +1,14 @@
+{
+    "name": "user_srv",
+    "mysql": {
+        "host": "go-uccs-1",
+        "port": 3306,
+        "user": "root",
+        "password": 123456,
+        "db": "mxshop_user_srv"
+    },
+    "consul": {
+        "host": "go-consul",
+        "port": 8500
+    }
+}

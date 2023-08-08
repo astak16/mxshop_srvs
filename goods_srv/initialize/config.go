@@ -2,7 +2,7 @@ package initialize
 
 import (
 	"encoding/json"
-	"mxshow_srvs/user_srv/global"
+	"mxshow_srvs/goods_srv/global"
 
 	"github.com/nacos-group/nacos-sdk-go/clients"
 	"github.com/nacos-group/nacos-sdk-go/common/constant"

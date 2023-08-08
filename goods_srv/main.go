@@ -3,11 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"mxshow_srvs/user_srv/global"
-	"mxshow_srvs/user_srv/handler"
-	"mxshow_srvs/user_srv/initialize"
-	"mxshow_srvs/user_srv/proto"
-	"mxshow_srvs/user_srv/utils"
+	"mxshow_srvs/goods_srv/global"
+	"mxshow_srvs/goods_srv/handler"
+	"mxshow_srvs/goods_srv/initialize"
+	"mxshow_srvs/goods_srv/proto"
+	"mxshow_srvs/goods_srv/utils"
 	"net"
 	"os"
 	"os/signal"
@@ -23,7 +23,7 @@ import (
 
 func main() {
 	IP := flag.String("ip", "0.0.0.0", "ip地址")
-	Port := flag.Int("port", 0, "端口号")
+	Port := flag.Int("port", 50051, "端口号")
 
 	initialize.InitLogger()
 	initialize.InitConfig()
@@ -41,7 +41,7 @@ func main() {
 	zap.S().Info("port: ", *Port)
 
 	server := grpc.NewServer()
-	proto.RegisterUserServer(server, &handler.UserServer{})
+	proto.RegisterGoodsServer(server, &handler.GoodsServer{})
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *IP, *Port))
 	if err != nil {
@@ -61,7 +61,7 @@ func main() {
 
 	check := &api.AgentServiceCheck{
 		// CheckID:                        id,
-		GRPC: fmt.Sprintf("172.18.0.3:%d", *Port), //
+		GRPC: fmt.Sprintf("%s:%d", global.ServerConfig.Host, *Port), //
 		// HTTP:                           "http://" + address + ":" + strconv.Itoa(port) + "/health", // 检查服务的地址
 		Timeout:                        "5s",   // 健康检查的超时时间
 		Interval:                       "5s",   // 健康检查的间隔时间
@@ -72,8 +72,8 @@ func main() {
 	serviceID := fmt.Sprintf("%s", uuid.NewV4())
 	registration.ID = serviceID
 	registration.Port = *Port
-	registration.Tags = []string{"imooc", "bobby", "user", "srv"}
-	registration.Address = "172.18.0.3"
+	registration.Tags = global.ServerConfig.Tags
+	registration.Address = global.ServerConfig.Host
 	registration.Check = check
 
 	err = client.Agent().ServiceRegister(registration)
