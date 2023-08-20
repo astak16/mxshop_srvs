@@ -11,7 +11,7 @@
 
 host: "go-nacos"
 port: 8848
-namespace: "98a14936-c8c5-4da6-966e-25c75305326b"
+namespace: "d3d0e69d-0f9e-4c62-80a7-ef01af25fabb"
 user: "nacos"
 password: "nacos"
 dataid: "goods-srv.json"
