@@ -1,0 +1,18 @@
+# name: "user_srv"
+# mysql:
+#   host: "go-uccs-1"
+#   port: 3306
+#   user: "root"
+#   password: 123456
+#   db: "mxshop_user_srv"
+# consul:
+#   host: "go-consul"
+#   port: 8500
+
+host: "go-nacos"
+port: 8848
+namespace: "c2107d27-27b3-4fd3-aaed-ca77a9f319fe"
+user: "nacos"
+password: "nacos"
+dataid: "inventory.json"
+group: "dev"
