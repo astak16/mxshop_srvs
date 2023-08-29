@@ -61,7 +61,7 @@ func main() {
 
 	check := &api.AgentServiceCheck{
 		// CheckID:                        id,
-		GRPC: fmt.Sprintf("172.18.0.3:%d", *Port), //
+		GRPC: fmt.Sprintf("172.18.0.6:%d", *Port), //
 		// HTTP:                           "http://" + address + ":" + strconv.Itoa(port) + "/health", // 检查服务的地址
 		Timeout:                        "5s",   // 健康检查的超时时间
 		Interval:                       "5s",   // 健康检查的间隔时间
@@ -73,7 +73,7 @@ func main() {
 	registration.ID = serviceID
 	registration.Port = *Port
 	registration.Tags = []string{"imooc", "bobby", "user", "srv"}
-	registration.Address = "172.18.0.3"
+	registration.Address = "172.18.0.6"
 	registration.Check = check
 
 	err = client.Agent().ServiceRegister(registration)

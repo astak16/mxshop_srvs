@@ -4,12 +4,12 @@ import (
 	"flag"
 	"fmt"
 
-	"mxshow_srvs/inventory_srv/global"
-	"mxshow_srvs/inventory_srv/handler"
-	"mxshow_srvs/inventory_srv/initialize"
-	"mxshow_srvs/inventory_srv/proto"
-	"mxshow_srvs/inventory_srv/utils"
-	"mxshow_srvs/inventory_srv/utils/register/consul"
+	"mxshow_srvs/userop_srv/global"
+	"mxshow_srvs/userop_srv/handler"
+	"mxshow_srvs/userop_srv/initialize"
+	"mxshow_srvs/userop_srv/proto"
+	"mxshow_srvs/userop_srv/utils"
+	"mxshow_srvs/userop_srv/utils/register/consul"
 	"net"
 	"os"
 	"os/signal"
@@ -24,7 +24,7 @@ import (
 
 func main() {
 	IP := flag.String("ip", "0.0.0.0", "ip地址")
-	Port := flag.Int("port", 50053, "端口号")
+	Port := flag.Int("port", 50051, "端口号")
 
 	initialize.InitLogger()
 	initialize.InitConfig()
@@ -42,7 +42,9 @@ func main() {
 	zap.S().Info("port: ", *Port)
 
 	server := grpc.NewServer()
-	proto.RegisterInventoryServer(server, &handler.InventoryServer{})
+	proto.RegisterMessageServer(server, &handler.UserOpServer{})
+	proto.RegisterAddressServer(server, &handler.UserOpServer{})
+	proto.RegisterUserFavServer(server, &handler.UserOpServer{})
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *IP, *Port))
 	if err != nil {

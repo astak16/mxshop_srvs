@@ -1,13 +1,19 @@
 {
-    "name": "inventory_srv",
-    "tags":["imooc", "bobby", "inventory", "srv"],
+    "name": "order_srv",
+    "tags":["imooc", "bobby", "order", "srv"],
     "host":"172.18.0.6",
+    "goods_srv":{
+        "name": "goods_srv"
+    },
+    "inventory_srv":{
+        "name": "inventory_srv"
+    },
     "mysql": {
         "host": "go-uccs-1",
         "port": 3306,
         "user": "root",
         "password": 123456,
-        "db": "mxshop_inventory_srv"
+        "db": "mxshop_order_srv"
     },
     "consul": {
         "host": "go-consul",
