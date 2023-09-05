@@ -143,6 +143,7 @@ func (*OrderServer) OrderDetail(ctx context.Context, req *proto.OrderRequest) (*
 			GoodsId:    orderGood.Goods,
 			GoodsName:  orderGood.GoodsName,
 			GoodsPrice: orderGood.GoodsPrice,
+			GoodsImage: orderGood.GoodsImage,
 			Nums:       orderGood.Nums,
 		})
 	}

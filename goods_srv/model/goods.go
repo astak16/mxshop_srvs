@@ -1,5 +1,13 @@
 package model
 
+import (
+	"context"
+	"mxshow_srvs/goods_srv/global"
+	"strconv"
+
+	"gorm.io/gorm"
+)
+
 type Category struct {
 	BaseModel
 	Name             string      `gorm:"type:varchar(20);not null" json:"name"`
@@ -59,4 +67,60 @@ type Goods struct {
 	Images          GormList `gorm:"type:varchar(1000);not null"`
 	DescImages      GormList `gorm:"type:varchar(1000);not null"`
 	GoodsFrontImage string   `gorm:"type:varchar(100);not null"`
+}
+
+func (good *Goods) AfterCreate(tx *gorm.DB) (err error) {
+	esModel := EsGoods{
+		ID:          good.ID,
+		CategoryID:  good.CategoryId,
+		BrandsID:    good.BrandsId,
+		OnSale:      good.OnSale,
+		ShipFree:    good.ShipFree,
+		IsNew:       good.IsNew,
+		IsHot:       good.IsHot,
+		Name:        good.Name,
+		ClickNum:    good.ClickNum,
+		SoldNum:     good.SoldNum,
+		FavNum:      good.FavNum,
+		MarketPrice: good.MarketPrice,
+		ShopPrice:   good.ShopPrice,
+		GoodsBrief:  good.GoodsBrief,
+	}
+	_, err = global.EsClient.Index().Index(esModel.GetIndexName()).BodyJson(esModel).Id(strconv.Itoa(int(good.ID))).Do(context.Background())
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (good *Goods) AfterUpdate(tx *gorm.DB) (err error) {
+	esModel := EsGoods{
+		ID:          good.ID,
+		CategoryID:  good.CategoryId,
+		BrandsID:    good.BrandsId,
+		OnSale:      good.OnSale,
+		ShipFree:    good.ShipFree,
+		IsNew:       good.IsNew,
+		IsHot:       good.IsHot,
+		Name:        good.Name,
+		ClickNum:    good.ClickNum,
+		SoldNum:     good.SoldNum,
+		FavNum:      good.FavNum,
+		MarketPrice: good.MarketPrice,
+		ShopPrice:   good.ShopPrice,
+		GoodsBrief:  good.GoodsBrief,
+	}
+	_, err = global.EsClient.Update().Index(esModel.GetIndexName()).Doc(esModel).Id(strconv.Itoa(int(good.ID))).Do(context.Background())
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (good *Goods) AfterDelete(tx *gorm.DB) (err error) {
+	_, err = global.EsClient.Delete().Index(EsGoods{}.GetIndexName()).Id(strconv.Itoa(int(good.ID))).Do(context.Background())
+	if err != nil {
+		return err
+	}
+	return nil
 }

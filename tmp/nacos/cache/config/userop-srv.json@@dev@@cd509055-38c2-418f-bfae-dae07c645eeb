@@ -1,7 +1,7 @@
 {
     "name": "userop_srv",
     "tags":["imooc", "bobby", "userop", "srv"],
-    "host":"172.18.0.6",
+    "host":"172.18.0.2",
     "mysql": {
         "host": "go-uccs-1",
         "port": 3306,

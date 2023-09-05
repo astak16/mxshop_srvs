@@ -25,6 +25,7 @@ func ModelToResponse(user model.User) proto.UserInfoResponse {
 		PassWord: user.Password,
 		NickName: user.Nickname,
 		Gender:   user.Gender,
+		Mobile:   user.Mobile,
 		Role:     int32(user.Role),
 	}
 	// 在 grpc 中的 message 字段有默认值，不能直接将 nil 赋值给 message 字段
