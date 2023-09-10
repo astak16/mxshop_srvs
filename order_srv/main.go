@@ -14,6 +14,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/apache/rocketmq-client-go/v2"
+	"github.com/apache/rocketmq-client-go/v2/consumer"
 	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -77,10 +79,21 @@ func main() {
 
 	zap.S().Debugf("启动服务器，端口：%d", *Port)
 
+	c, _ := rocketmq.NewPushConsumer(
+		consumer.WithNameServer([]string{"http://go-rmqnamesrv:9876"}),
+		consumer.WithGroupName("mxshop-order"),
+	)
+	if err := c.Subscribe("order_timeout", consumer.MessageSelector{}, handler.AutoTimeout); err != nil {
+		panic(err)
+	}
+	c.Start()
+
 	// 终止退出
 	quit := make(chan os.Signal)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+	_ = c.Shutdown()
+
 	if err = register_cliennt.DeRegister(serviceId); err != nil {
 		zap.S().Info("注销服务失败：", err.Error())
 	} else {

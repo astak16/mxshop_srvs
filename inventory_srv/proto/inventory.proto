@@ -18,4 +18,5 @@ message GoodsInvInfo {
 
 message SellInfo {
    repeated GoodsInvInfo goodsInfo = 1; // 商品id
+   string orderSn = 2;
 }

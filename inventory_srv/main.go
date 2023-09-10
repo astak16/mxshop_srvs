@@ -15,6 +15,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/apache/rocketmq-client-go/v2"
+	"github.com/apache/rocketmq-client-go/v2/consumer"
 	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -77,13 +79,31 @@ func main() {
 
 	zap.S().Debugf("启动服务器，端口：%d", *Port)
 
+	// 监听库存归还 topic
+	c := AutoReback()
+
 	// 终止退出
 	quit := make(chan os.Signal)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+	_ = c.Shutdown()
+
 	if err = register_cliennt.DeRegister(serviceId); err != nil {
 		zap.S().Info("注销服务失败：", err.Error())
 	} else {
 		zap.S().Info("注销服务成功")
 	}
+}
+
+func AutoReback() rocketmq.PushConsumer {
+	c, _ := rocketmq.NewPushConsumer(
+		consumer.WithNameServer([]string{"http://go-rmqnamesrv:9876"}),
+		consumer.WithGroupName("mxshop-inventory"),
+	)
+	if err := c.Subscribe("order_reback", consumer.MessageSelector{}, handler.AutoReback); err != nil {
+		panic(err)
+	}
+	c.Start()
+
+	return c
 }

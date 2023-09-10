@@ -51,5 +51,21 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	_ = db.AutoMigrate(&model.Inventory{})
+	// _ = db.AutoMigrate(&model.Inventory{}, &model.StockSellDetail{})
+
+	// orderDetail := model.StockSellDetail{
+	// 	OrderSn: "123456",
+	// 	Status:  1,
+	// 	Detail: model.GoodsDetailList{
+	// 		{
+	// 			Goods: 1,
+	// 			Num:   1,
+	// 		},
+	// 	},
+	// }
+	// db.Create(&orderDetail)
+
+	var sellDetail model.StockSellDetail
+	db.Where(&model.StockSellDetail{OrderSn: "123456"}).First(&sellDetail)
+	fmt.Println(sellDetail)
 }

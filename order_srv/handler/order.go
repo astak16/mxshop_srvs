@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"math/rand"
 
 	"fmt"
@@ -10,6 +11,11 @@ import (
 	"mxshow_srvs/order_srv/proto"
 	"time"
 
+	"github.com/apache/rocketmq-client-go/v2"
+	"github.com/apache/rocketmq-client-go/v2/consumer"
+	"github.com/apache/rocketmq-client-go/v2/primitive"
+	"github.com/apache/rocketmq-client-go/v2/producer"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -151,19 +157,24 @@ func (*OrderServer) OrderDetail(ctx context.Context, req *proto.OrderRequest) (*
 	return &rsp, nil
 }
 
-func (*OrderServer) Create(ctx context.Context, req *proto.OrderRequest) (*proto.OrderInfoResponse, error) {
+type OrderListener struct {
+	Code        codes.Code
+	Detail      string
+	ID          int32
+	OrderAmount float32
+}
 
-	// 1. 从购物车中获取到选中的商品
-	// 2. 商品的价格自己查询 - 访问商品服务（跨微服务）
-	// 3. 库存的扣减 - 访问库存服务（跨微服务）
-	// 4. 订单的基本信息表 - 订单的商品信息表
-	// 5. 从购物车中删除已购买的记录
+func (o *OrderListener) ExecuteLocalTransaction(msg *primitive.Message) primitive.LocalTransactionState {
+	var orderInfo model.OrderInfo
+	_ = json.Unmarshal(msg.Body, &orderInfo)
 
 	var goodsIds []int32
 	var shopCarts []model.ShoppingCart
 	goodsNumsMap := make(map[int32]int32)
-	if result := global.DB.Where(&model.ShoppingCart{User: req.UserId, Checked: true}).Find(&shopCarts); result.RowsAffected == 0 {
-		return nil, status.Errorf(codes.NotFound, "没有选中结算的商品")
+	if result := global.DB.Where(&model.ShoppingCart{User: orderInfo.User, Checked: true}).Find(&shopCarts); result.RowsAffected == 0 {
+		o.Code = codes.InvalidArgument
+		o.Detail = "没有选中结算的商品"
+		return primitive.RollbackMessageState
 	}
 
 	for _, shopCart := range shopCarts {
@@ -174,7 +185,9 @@ func (*OrderServer) Create(ctx context.Context, req *proto.OrderRequest) (*proto
 	// 商品微服务
 	goods, err := global.GoodsSrvClient.BatchGetGoods(context.Background(), &proto.BatchGoodsIdInfo{Id: goodsIds})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "批量查询商品信息失败")
+		o.Code = codes.InvalidArgument
+		o.Detail = "批量查询商品信息失败"
+		return primitive.RollbackMessageState
 	}
 
 	var orderAmount float32
@@ -196,44 +209,131 @@ func (*OrderServer) Create(ctx context.Context, req *proto.OrderRequest) (*proto
 	}
 
 	// 库存微服务
-	if _, err := global.InventorySrvClient.Sell(context.Background(), &proto.SellInfo{GoodsInfo: goodsInvInfo}); err != nil {
-		return nil, status.Errorf(codes.ResourceExhausted, "扣减库存失败")
+	if _, err := global.InventorySrvClient.Sell(context.Background(), &proto.SellInfo{OrderSn: orderInfo.OrderSn, GoodsInfo: goodsInvInfo}); err != nil {
+		o.Code = codes.ResourceExhausted
+		o.Detail = "扣减库存失败"
+		return primitive.RollbackMessageState
 	}
 
 	// 生成订单表
 	tx := global.DB.Begin()
+	orderInfo.OrderMount = orderAmount
+	if result := tx.Save(&orderInfo); result.RowsAffected == 0 {
+		tx.Rollback()
+		o.Code = codes.NotFound
+		o.Detail = "创建订单失败"
+		return primitive.CommitMessageState
+	}
+
+	o.OrderAmount = orderAmount
+	o.ID = orderInfo.ID
+
+	for _, orderGood := range orderGoods {
+		orderGood.Order = orderInfo.ID
+	}
+	if result := tx.CreateInBatches(&orderGoods, 100); result.RowsAffected == 0 {
+		tx.Rollback()
+		o.Code = codes.Internal
+		o.Detail = "批量插入订单失败"
+		return primitive.CommitMessageState
+	}
+
+	if result := tx.Where(&model.ShoppingCart{User: orderInfo.User, Checked: true}).Delete(&model.ShoppingCart{}); result.RowsAffected == 0 {
+		tx.Rollback()
+		o.Code = codes.Internal
+		o.Detail = "删除购物车记录失败"
+		return primitive.CommitMessageState
+	}
+
+	// 发送延迟消息
+	p, err := rocketmq.NewProducer(producer.WithNameServer([]string{"http://go-rmqnamesrv:9876"}))
+	if err != nil {
+		panic("生成 producer 失败")
+	}
+
+	if err = p.Start(); err != nil {
+		panic("启动 producer 失败")
+	}
+
+	msg = &primitive.Message{
+		Topic: "order_timeout",
+		Body:  msg.Body,
+	}
+	msg.WithDelayTimeLevel(5)
+	_, err = p.SendSync(context.Background(), msg)
+	if err != nil {
+		zap.S().Errorf("发送延时消息失败：%v\n", err)
+		tx.Rollback()
+		o.Code = codes.Internal
+		o.Detail = "发送延时消息失败"
+		return primitive.CommitMessageState
+	}
+	// if err := p.Shutdown(); err != nil {
+	// 	panic("关闭 producer 失败")
+	// }
+
+	// 提交事务
+	tx.Commit()
+	o.Code = codes.OK
+	return primitive.RollbackMessageState
+}
+
+func (o *OrderListener) CheckLocalTransaction(msg *primitive.MessageExt) primitive.LocalTransactionState {
+	var orderInfo model.OrderInfo
+	_ = json.Unmarshal(msg.Body, &orderInfo)
+
+	if result := global.DB.Where(model.OrderInfo{OrderSn: orderInfo.OrderSn}).First(&orderInfo); result.RowsAffected == 0 {
+		return primitive.CommitMessageState
+	}
+	return primitive.RollbackMessageState
+}
+
+func (*OrderServer) Create(ctx context.Context, req *proto.OrderRequest) (*proto.OrderInfoResponse, error) {
+
+	// 1. 从购物车中获取到选中的商品
+	// 2. 商品的价格自己查询 - 访问商品服务（跨微服务）
+	// 3. 库存的扣减 - 访问库存服务（跨微服务）
+	// 4. 订单的基本信息表 - 订单的商品信息表
+	// 5. 从购物车中删除已购买的记录
+	orderListener := OrderListener{}
+	p, err := rocketmq.NewTransactionProducer(
+		&OrderListener{},
+		producer.WithNameServer([]string{"http://go-rmqnamesrv:9876"}),
+	)
+	if err != nil {
+		zap.S().Errorf("生成 producer 失败：%s", err.Error())
+		return nil, err
+	}
+
+	if err = p.Start(); err != nil {
+		zap.S().Errorf("启动 producer 失败：%s", err.Error())
+		return nil, err
+	}
+
 	order := model.OrderInfo{
 		OrderSn:      GenerateOrderSn(req.UserId),
-		OrderMount:   orderAmount,
 		Address:      req.Address,
 		SignerName:   req.Name,
 		SignerMobile: req.Mobile,
 		Post:         req.Post,
 		User:         req.UserId,
 	}
-	if result := tx.Save(&order); result.RowsAffected == 0 {
-		tx.Rollback()
-		return nil, status.Errorf(codes.NotFound, "创建订单失败")
-	}
+	jsonString, _ := json.Marshal(order)
 
-	for _, orderGood := range orderGoods {
-		orderGood.Order = order.ID
-	}
-	if result := tx.CreateInBatches(&orderGoods, 100); result.RowsAffected == 0 {
-		tx.Rollback()
-		return nil, status.Errorf(codes.NotFound, "创建订单失败")
-	}
+	_, err = p.SendMessageInTransaction(context.Background(), primitive.NewMessage("order_reback", jsonString))
 
-	if result := tx.Where(&model.ShoppingCart{User: req.UserId, Checked: true}).Delete(&model.ShoppingCart{}); result.RowsAffected == 0 {
-		tx.Rollback()
-		return nil, status.Errorf(codes.NotFound, "创建订单失败")
+	if err != nil {
+		zap.S().Errorf("发送消息失败：%s", err.Error())
+		return nil, status.Error(codes.Internal, "发送消息失败")
 	}
-	tx.Commit()
+	if orderListener.Code != codes.OK {
+		return nil, status.Error(orderListener.Code, orderListener.Detail)
+	}
 
 	return &proto.OrderInfoResponse{
-		Id:      order.ID,
+		Id:      orderListener.ID,
 		OrderSn: order.OrderSn,
-		Total:   order.OrderMount,
+		Total:   orderListener.OrderAmount,
 	}, nil
 }
 
@@ -242,4 +342,44 @@ func (*OrderServer) UpdateOrderStatus(ctx context.Context, req *proto.OrderStatu
 		return nil, status.Errorf(codes.NotFound, "创建订单失败")
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func AutoTimeout(ctx context.Context, msgs ...*primitive.MessageExt) (consumer.ConsumeResult, error) {
+	for i := range msgs {
+		var orderInfo model.OrderInfo
+		_ = json.Unmarshal(msgs[i].Body, &orderInfo)
+		var order model.OrderInfo
+		if result := global.DB.Model(model.OrderInfo{}).Where(&model.OrderInfo{OrderSn: orderInfo.OrderSn}).First(&order); result.RowsAffected == 0 {
+			return consumer.ConsumeSuccess, nil
+		}
+		if order.Status != "TRADE_SUCCESS" {
+			tx := global.DB.Begin()
+
+			order.Status = "TRADE_CLOSED"
+			tx.Save(&order)
+
+			p, err := rocketmq.NewProducer(producer.WithNameServer([]string{"http://go-rmqnamesrv:9876"}))
+			if err != nil {
+				panic("生成 producer 失败")
+			}
+
+			if err = p.Start(); err != nil {
+				panic("启动 producer 失败")
+			}
+
+			_, err = p.SendSync(context.Background(), &primitive.Message{
+				Topic: "order_reback",
+				Body:  msgs[i].Body,
+			})
+			if err != nil {
+				tx.Rollback()
+				fmt.Printf("发送消息失败: %s\n", err)
+				return consumer.ConsumeRetryLater, nil
+			}
+			// if err := p.Shutdown(); err != nil {
+			// 	panic("关闭 producer 失败")
+			// }
+		}
+	}
+	return consumer.ConsumeSuccess, nil
 }
